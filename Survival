@@ -1,0 +1,631 @@
+-- ============ SURVIVAL GAME (1 Script) ============
+-- Taruh di: ServerScriptService > Script
+-- Fitur: lapar/haus, siang-malam, zombie malam hari, kumpulin kayu/batu,
+-- craft pedang & api unggun, minum di kolam, petik buah, HUD otomatis.
+
+local Players  = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local Debris   = game:GetService("Debris")
+
+local CFG = {
+	DayLength    = 240,  -- detik untuk 1 hari penuh
+	MaxZombies   = 10,
+	ZombieHP     = 60,
+	ZombieDmg    = 10,
+	ZombieSpeed  = 13,
+	HungerDrain  = 0.25, -- per detik
+	ThirstDrain  = 0.35,
+	StarveDmg    = 4,    -- damage/detik kalau lapar/haus 0
+	SwordDmg     = 25,
+	Trees        = 45,
+	Rocks        = 25,
+	Bushes       = 18,
+	MapSize      = 400,
+	CampfireLife = 90,
+}
+
+local rng = Random.new()
+local POND = Vector3.new(60, 0, 40)
+local WHITE = Color3.new(1, 1, 1)
+local state, zombies = {}, {}
+
+-- hapus map bawaan
+for _, n in ipairs({ "Baseplate", "SpawnLocation" }) do
+	local o = workspace:FindFirstChild(n)
+	if o then o:Destroy() end
+end
+
+local world = Instance.new("Folder")
+world.Name = "SurvivalWorld"
+world.Parent = workspace
+
+---------------------------------------------------------------- HELPER
+local function newPart(parent, name, size, pos, color, material, shape)
+	local p = Instance.new("Part")
+	p.Name = name
+	if shape then p.Shape = shape end
+	p.Size = size
+	p.Position = pos
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.Parent = parent
+	return p
+end
+
+local function notify(player, msg)
+	local st = state[player]
+	if not st then return end
+	st.Token += 1
+	local t = st.Token
+	st.UI.Notify.Text = msg
+	st.UI.Notify.Visible = true
+	task.delay(3, function()
+		if st.Token == t then st.UI.Notify.Visible = false end
+	end)
+end
+
+local function broadcast(msg)
+	for p in pairs(state) do notify(p, msg) end
+end
+
+local function give(player, name, amt)
+	local ls = player:FindFirstChild("leaderstats")
+	local v = ls and ls:FindFirstChild(name)
+	if v then v.Value += amt end
+end
+
+local function addNeed(player, key, amt)
+	local st = state[player]
+	if st then st[key] = math.clamp(st[key] + amt, 0, 100) end
+end
+
+local function setVisible(model, visible)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if d:GetAttribute("T") == nil then
+				d:SetAttribute("T", d.Transparency)
+				d:SetAttribute("C", d.CanCollide)
+			end
+			d.Transparency = visible and d:GetAttribute("T") or 1
+			d.CanCollide = visible and d:GetAttribute("C") or false
+		end
+	end
+end
+
+local function harvestable(model, anchor, action, objText, hold, cooldown, onGather)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = action
+	prompt.ObjectText = objText
+	prompt.HoldDuration = hold
+	prompt.MaxActivationDistance = 9
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = anchor
+	prompt.Triggered:Connect(function(player)
+		if not prompt.Enabled then return end
+		prompt.Enabled = false
+		setVisible(model, false)
+		onGather(player)
+		task.delay(cooldown, function()
+			if model.Parent then
+				setVisible(model, true)
+				prompt.Enabled = true
+			end
+		end)
+	end)
+end
+
+---------------------------------------------------------------- DUNIA
+Lighting.ClockTime = 8
+Lighting.GlobalShadows = true
+
+newPart(world, "Ground", Vector3.new(CFG.MapSize, 2, CFG.MapSize), Vector3.new(0, -1, 0),
+	Color3.fromRGB(80, 150, 70), Enum.Material.Grass)
+
+local half = CFG.MapSize / 2
+for _, s in ipairs({ {1, 0}, {-1, 0}, {0, 1}, {0, -1} }) do
+	local w = newPart(world, "Wall",
+		Vector3.new(s[1] ~= 0 and 2 or CFG.MapSize, 80, s[2] ~= 0 and 2 or CFG.MapSize),
+		Vector3.new(s[1] * half, 40, s[2] * half), WHITE)
+	w.Transparency = 1
+end
+
+local spawnPad = Instance.new("SpawnLocation")
+spawnPad.Size = Vector3.new(12, 1, 12)
+spawnPad.Position = Vector3.new(0, 0.5, 0)
+spawnPad.Anchored = true
+spawnPad.Neutral = true
+spawnPad.Duration = 0
+spawnPad.Color = Color3.fromRGB(200, 200, 200)
+spawnPad.Parent = world
+
+-- kolam
+local pond = newPart(world, "Kolam", Vector3.new(0.6, 24, 24), POND + Vector3.new(0, 0.2, 0),
+	Color3.fromRGB(50, 130, 220), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+pond.CFrame = CFrame.new(POND.X, 0.2, POND.Z) * CFrame.Angles(0, 0, math.pi / 2)
+pond.Transparency = 0.2
+local drink = Instance.new("ProximityPrompt")
+drink.ActionText = "Minum"
+drink.ObjectText = "Air Kolam"
+drink.HoldDuration = 1
+drink.MaxActivationDistance = 18
+drink.RequiresLineOfSight = false
+drink.Parent = pond
+drink.Triggered:Connect(function(p) addNeed(p, "Thirst", 35) end)
+
+local function randomSpot()
+	local h = CFG.MapSize / 2 - 15
+	for _ = 1, 30 do
+		local x, z = rng:NextNumber(-h, h), rng:NextNumber(-h, h)
+		local nearSpawn = (x * x + z * z) < 30 * 30
+		local nearPond = ((x - POND.X) ^ 2 + (z - POND.Z) ^ 2) < 18 * 18
+		if not nearSpawn and not nearPond then return x, z end
+	end
+	return 100, 100
+end
+
+local function makeTree(x, z)
+	local h = rng:NextNumber(9, 14)
+	local m = Instance.new("Model")
+	m.Name = "Pohon"
+	local trunk = newPart(m, "Trunk", Vector3.new(2, h, 2), Vector3.new(x, h / 2, z),
+		Color3.fromRGB(110, 75, 45), Enum.Material.Wood)
+	local leaves = newPart(m, "Leaves", Vector3.new(10, 10, 10), Vector3.new(x, h + 3, z),
+		Color3.fromRGB(50, 140, 60), Enum.Material.Grass, Enum.PartType.Ball)
+	leaves.CanCollide = false
+	m.PrimaryPart = trunk
+	m.Parent = world
+	harvestable(m, trunk, "Tebang", "Pohon", 1.5, 25, function(p)
+		give(p, "Kayu", 3)
+		notify(p, "+3 Kayu")
+	end)
+end
+
+local function makeRock(x, z)
+	local m = Instance.new("Model")
+	m.Name = "Batu"
+	local r = newPart(m, "Rock", Vector3.new(4, 3, 4), Vector3.new(x, 1.5, z),
+		Color3.fromRGB(120, 120, 125), Enum.Material.Slate)
+	r.CFrame = CFrame.new(x, 1.5, z) * CFrame.Angles(0, rng:NextNumber(0, 6), 0)
+	m.PrimaryPart = r
+	m.Parent = world
+	harvestable(m, r, "Pecah", "Batu", 1.5, 30, function(p)
+		give(p, "Batu", 2)
+		notify(p, "+2 Batu")
+	end)
+end
+
+local function makeBush(x, z)
+	local m = Instance.new("Model")
+	m.Name = "Semak Buah"
+	local b = newPart(m, "Bush", Vector3.new(4, 3, 4), Vector3.new(x, 1.5, z),
+		Color3.fromRGB(35, 110, 45), Enum.Material.Grass, Enum.PartType.Ball)
+	for i = 1, 4 do
+		local off = Vector3.new(rng:NextNumber(-1.3, 1.3), rng:NextNumber(0.5, 2.2), rng:NextNumber(-1.3, 1.3))
+		local berry = newPart(m, "Berry", Vector3.new(0.7, 0.7, 0.7), Vector3.new(x, 0, z) + off,
+			Color3.fromRGB(210, 30, 50), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		berry.CanCollide = false
+	end
+	m.PrimaryPart = b
+	m.Parent = world
+	harvestable(m, b, "Petik", "Buah", 0.8, 30, function(p)
+		addNeed(p, "Hunger", 25)
+		notify(p, "+25 Kenyang")
+	end)
+end
+
+for _ = 1, CFG.Trees  do makeTree(randomSpot()) end
+for _ = 1, CFG.Rocks  do makeRock(randomSpot()) end
+for _ = 1, CFG.Bushes do makeBush(randomSpot()) end
+
+---------------------------------------------------------------- ZOMBIE
+local function spawnZombie(pos)
+	local m = Instance.new("Model")
+	m.Name = "Zombie"
+	m:SetAttribute("Zombie", true)
+
+	local hum = Instance.new("Humanoid")
+	hum.RigType = Enum.HumanoidRigType.R15
+	hum.MaxHealth = CFG.ZombieHP
+	hum.Health = CFG.ZombieHP
+	hum.WalkSpeed = CFG.ZombieSpeed
+	hum.HipHeight = 1.5
+	hum.BreakJointsOnDeath = false
+	hum.Parent = m
+
+	local skin = Color3.fromRGB(90, 140, 80)
+	local function limb(name, size, offset, color)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size
+		p.Color = color
+		p.CFrame = CFrame.new(pos + offset)
+		p.CanCollide = false
+		p.Massless = true
+		p.Parent = m
+		return p
+	end
+
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 3, 1)
+	root.Color = Color3.fromRGB(60, 90, 140)
+	root.CFrame = CFrame.new(pos)
+	root.Parent = m
+	m.PrimaryPart = root
+
+	local parts = {
+		limb("Head", Vector3.new(1.6, 1.6, 1.6), Vector3.new(0, 2.3, 0), skin),
+		limb("ArmL", Vector3.new(0.8, 0.8, 2.5), Vector3.new(-1.4, 0.7, -1.2), skin),
+		limb("ArmR", Vector3.new(0.8, 0.8, 2.5), Vector3.new(1.4, 0.7, -1.2), skin),
+		limb("LegL", Vector3.new(0.9, 1.5, 0.9), Vector3.new(-0.5, -2.25, 0), Color3.fromRGB(40, 60, 100)),
+		limb("LegR", Vector3.new(0.9, 1.5, 0.9), Vector3.new(0.5, -2.25, 0), Color3.fromRGB(40, 60, 100)),
+	}
+	for _, p in ipairs(parts) do
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = root
+		w.Part1 = p
+		w.Parent = root
+	end
+
+	m.Parent = world
+	root:SetNetworkOwner(nil)
+
+	zombies[m] = { Hum = hum, Root = root, LastAtk = 0 }
+
+	hum.Died:Connect(function()
+		local killer = Players:GetPlayerByUserId(m:GetAttribute("Attacker") or 0)
+		if killer then give(killer, "Kill", 1) end
+		zombies[m] = nil
+		Debris:AddItem(m, 2)
+	end)
+end
+
+local function zombieCount()
+	local n = 0
+	for _ in pairs(zombies) do n += 1 end
+	return n
+end
+
+local function spawnNearPlayer()
+	local list = Players:GetPlayers()
+	if #list == 0 then return end
+	local p = list[rng:NextInteger(1, #list)]
+	local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local ang = rng:NextNumber(0, math.pi * 2)
+	local dist = rng:NextNumber(45, 75)
+	local lim = CFG.MapSize / 2 - 10
+	local x = math.clamp(root.Position.X + math.cos(ang) * dist, -lim, lim)
+	local z = math.clamp(root.Position.Z + math.sin(ang) * dist, -lim, lim)
+	spawnZombie(Vector3.new(x, 4, z))
+end
+
+-- AI zombie
+task.spawn(function()
+	while true do
+		task.wait(0.4)
+		for z, info in pairs(zombies) do
+			local hum, root = info.Hum, info.Root
+			if not z.Parent or hum.Health <= 0 then
+				zombies[z] = nil
+			else
+				local nearest, nd = nil, 70
+				for _, p in ipairs(Players:GetPlayers()) do
+					local c = p.Character
+					local r = c and c:FindFirstChild("HumanoidRootPart")
+					local h = c and c:FindFirstChildOfClass("Humanoid")
+					if r and h and h.Health > 0 then
+						local d = (r.Position - root.Position).Magnitude
+						if d < nd then nearest, nd = p, d end
+					end
+				end
+				if nearest then
+					local tr = nearest.Character.HumanoidRootPart
+					hum:MoveTo(tr.Position)
+					if nd > 5 and root.AssemblyLinearVelocity.Magnitude < 2 then
+						hum.Jump = true
+					end
+					if nd < 4.5 and os.clock() - info.LastAtk > 1 then
+						info.LastAtk = os.clock()
+						nearest.Character.Humanoid:TakeDamage(CFG.ZombieDmg)
+					end
+				elseif rng:NextInteger(1, 4) == 1 then
+					hum:MoveTo(root.Position + Vector3.new(rng:NextInteger(-20, 20), 0, rng:NextInteger(-20, 20)))
+				end
+			end
+		end
+	end
+end)
+
+---------------------------------------------------------------- CRAFTING
+local function giveSword(player)
+	local has = player.Backpack:FindFirstChild("Pedang")
+		or (player.Character and player.Character:FindFirstChild("Pedang"))
+	if has then return false, "Kamu sudah punya Pedang!" end
+
+	local tool = Instance.new("Tool")
+	tool.Name = "Pedang"
+	tool.CanBeDropped = false
+	tool.GripPos = Vector3.new(0, 0, -1.5)
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 0.8, 4)
+	handle.Color = Color3.fromRGB(190, 190, 200)
+	handle.Material = Enum.Material.Metal
+	handle.Parent = tool
+
+	local last = 0
+	tool.Activated:Connect(function()
+		local char = tool.Parent
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root or os.clock() - last < 0.5 then return end
+		last = os.clock()
+		local center = root.Position + root.CFrame.LookVector * 4
+		local hit = {}
+		for _, part in ipairs(workspace:GetPartBoundsInRadius(center, 6)) do
+			local model = part:FindFirstAncestorOfClass("Model")
+			if model and model:GetAttribute("Zombie") and not hit[model] then
+				hit[model] = true
+				local zh = model:FindFirstChildOfClass("Humanoid")
+				if zh and zh.Health > 0 then
+					model:SetAttribute("Attacker", player.UserId)
+					zh:TakeDamage(CFG.SwordDmg)
+				end
+			end
+		end
+	end)
+
+	tool.Parent = player.Backpack
+	return true, "Pedang berhasil dibuat!"
+end
+
+local function placeCampfire(player)
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return false, "Karakter belum siap" end
+
+	local pos = root.Position + root.CFrame.LookVector * 5
+	local rp = RaycastParams.new()
+	rp.FilterDescendantsInstances = { char }
+	local r = workspace:Raycast(pos + Vector3.new(0, 10, 0), Vector3.new(0, -40, 0), rp)
+	local gy = r and r.Position.Y or 0
+
+	local fire = newPart(world, "Api Unggun", Vector3.new(3, 1, 3), Vector3.new(pos.X, gy + 0.5, pos.Z),
+		Color3.fromRGB(90, 60, 40), Enum.Material.Wood)
+	local f = Instance.new("Fire")
+	f.Size = 8
+	f.Heat = 10
+	f.Parent = fire
+	local l = Instance.new("PointLight")
+	l.Range = 24
+	l.Brightness = 3
+	l.Color = Color3.fromRGB(255, 170, 80)
+	l.Parent = fire
+
+	task.spawn(function()
+		for _ = 1, CFG.CampfireLife do
+			if not fire.Parent then return end
+			for _, p in ipairs(Players:GetPlayers()) do
+				local c = p.Character
+				local h = c and c:FindFirstChildOfClass("Humanoid")
+				local r2 = c and c:FindFirstChild("HumanoidRootPart")
+				if h and h.Health > 0 and r2 and (r2.Position - fire.Position).Magnitude < 14 then
+					h.Health = math.min(h.MaxHealth, h.Health + 3)
+				end
+			end
+			for _, info in pairs(zombies) do
+				if (info.Root.Position - fire.Position).Magnitude < 12 then
+					info.Hum:TakeDamage(6)
+				end
+			end
+			task.wait(1)
+		end
+		fire:Destroy()
+	end)
+	return true, "Api unggun menyala! (heal + bakar zombie)"
+end
+
+local function makeStation(name, pos, color, costWood, costStone, craft)
+	local m = Instance.new("Model")
+	m.Name = name
+	m.Parent = world
+	local base = newPart(m, "Base", Vector3.new(6, 3, 3), pos + Vector3.new(0, 1.5, 0), color, Enum.Material.Wood)
+
+	local tag = Instance.new("BillboardGui")
+	tag.Size = UDim2.fromOffset(220, 50)
+	tag.StudsOffset = Vector3.new(0, 3, 0)
+	tag.AlwaysOnTop = true
+	tag.Adornee = base
+	tag.Parent = base
+	local tl = Instance.new("TextLabel")
+	tl.Size = UDim2.fromScale(1, 1)
+	tl.BackgroundTransparency = 1
+	tl.TextColor3 = WHITE
+	tl.TextStrokeTransparency = 0.4
+	tl.Font = Enum.Font.GothamBold
+	tl.TextScaled = true
+	tl.Text = string.format("%s\n%d Kayu + %d Batu", name, costWood, costStone)
+	tl.Parent = tag
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Buat"
+	prompt.ObjectText = name
+	prompt.HoldDuration = 0.5
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = base
+	prompt.Triggered:Connect(function(player)
+		local ls = player:FindFirstChild("leaderstats")
+		if not ls then return end
+		if ls.Kayu.Value < costWood or ls.Batu.Value < costStone then
+			notify(player, "Bahan kurang! Butuh " .. costWood .. " Kayu & " .. costStone .. " Batu")
+			return
+		end
+		local ok, msg = craft(player)
+		if ok then
+			ls.Kayu.Value -= costWood
+			ls.Batu.Value -= costStone
+		end
+		notify(player, msg)
+	end)
+end
+
+makeStation("Meja Pedang",     Vector3.new(14, 0, -10), Color3.fromRGB(130, 90, 55), 5, 3, giveSword)
+makeStation("Meja Api Unggun", Vector3.new(14, 0, -20), Color3.fromRGB(150, 70, 40), 4, 2, placeCampfire)
+
+---------------------------------------------------------------- HUD
+local function makeBar(parent, y, color, label)
+	local back = Instance.new("Frame")
+	back.Size = UDim2.fromOffset(220, 22)
+	back.Position = UDim2.fromOffset(16, y)
+	back.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+	back.BackgroundTransparency = 0.3
+	back.BorderSizePixel = 0
+	back.Parent = parent
+	Instance.new("UICorner", back).CornerRadius = UDim.new(0, 6)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = color
+	fill.BorderSizePixel = 0
+	fill.Parent = back
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 6)
+
+	local txt = Instance.new("TextLabel")
+	txt.Size = UDim2.fromScale(1, 1)
+	txt.BackgroundTransparency = 1
+	txt.TextColor3 = WHITE
+	txt.Font = Enum.Font.GothamBold
+	txt.TextSize = 13
+	txt.ZIndex = 2
+	txt.Parent = back
+	return { Fill = fill, Label = txt, Name = label }
+end
+
+local function setBar(b, value, max)
+	b.Fill.Size = UDim2.fromScale(math.clamp(value / max, 0, 1), 1)
+	b.Label.Text = string.format("%s  %d", b.Name, math.floor(value))
+end
+
+local function buildGui(player)
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "SurvivalHUD"
+	gui.ResetOnSpawn = false
+
+	local ui = {}
+	ui.Health = makeBar(gui, 10, Color3.fromRGB(220, 60, 60), "Nyawa")
+	ui.Hunger = makeBar(gui, 38, Color3.fromRGB(230, 150, 40), "Lapar")
+	ui.Thirst = makeBar(gui, 66, Color3.fromRGB(60, 140, 230), "Haus")
+
+	local tm = Instance.new("TextLabel")
+	tm.Size = UDim2.fromOffset(220, 22)
+	tm.Position = UDim2.fromOffset(16, 94)
+	tm.BackgroundTransparency = 1
+	tm.TextColor3 = WHITE
+	tm.TextStrokeTransparency = 0.5
+	tm.Font = Enum.Font.GothamBold
+	tm.TextSize = 14
+	tm.TextXAlignment = Enum.TextXAlignment.Left
+	tm.Parent = gui
+	ui.Time = tm
+
+	local nt = Instance.new("TextLabel")
+	nt.Size = UDim2.fromOffset(400, 34)
+	nt.Position = UDim2.new(0.5, -200, 0, 20)
+	nt.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	nt.BackgroundTransparency = 0.3
+	nt.TextColor3 = WHITE
+	nt.Font = Enum.Font.GothamBold
+	nt.TextSize = 15
+	nt.Visible = false
+	nt.Parent = gui
+	Instance.new("UICorner", nt).CornerRadius = UDim.new(0, 8)
+	ui.Notify = nt
+
+	gui.Parent = player:WaitForChild("PlayerGui")
+	return ui
+end
+
+---------------------------------------------------------------- PLAYER
+local function onPlayerAdded(player)
+	local ls = Instance.new("Folder")
+	ls.Name = "leaderstats"
+	ls.Parent = player
+	for _, n in ipairs({ "Kayu", "Batu", "Kill" }) do
+		local v = Instance.new("IntValue")
+		v.Name = n
+		v.Parent = ls
+	end
+
+	local st = { Hunger = 100, Thirst = 100, Token = 0, UI = buildGui(player) }
+	state[player] = st
+
+	player.CharacterAdded:Connect(function()
+		st.Hunger, st.Thirst = 100, 100
+		task.wait(1)
+		notify(player, "Kumpulkan kayu & batu, lalu craft di meja dekat spawn!")
+	end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(function(p) state[p] = nil end)
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(onPlayerAdded, p) end
+
+-- lapar, haus, update HUD
+task.spawn(function()
+	while true do
+		local dt = task.wait(0.25)
+		for player, st in pairs(state) do
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				st.Hunger = math.max(0, st.Hunger - CFG.HungerDrain * dt)
+				st.Thirst = math.max(0, st.Thirst - CFG.ThirstDrain * dt)
+				if st.Hunger <= 0 or st.Thirst <= 0 then
+					hum:TakeDamage(CFG.StarveDmg * dt)
+				end
+			end
+			setBar(st.UI.Health, hum and hum.Health or 0, hum and hum.MaxHealth or 100)
+			setBar(st.UI.Hunger, st.Hunger, 100)
+			setBar(st.UI.Thirst, st.Thirst, 100)
+		end
+	end
+end)
+
+---------------------------------------------------------------- SIANG / MALAM
+local day, isNight = 1, false
+local clockSpeed = 24 / CFG.DayLength
+
+task.spawn(function()
+	while true do
+		local dt = task.wait(0.25)
+		local prev = Lighting.ClockTime
+		Lighting.ClockTime = (prev + dt * clockSpeed) % 24
+		if Lighting.ClockTime < prev then day += 1 end
+
+		local ct = Lighting.ClockTime
+		local nowNight = ct >= 18.5 or ct < 5.5
+		if nowNight ~= isNight then
+			isNight = nowNight
+			if isNight then
+				broadcast("Malam tiba! Zombie bermunculan...")
+			else
+				broadcast("Pagi tiba. Zombie terbakar!")
+				for z, info in pairs(zombies) do
+					z:SetAttribute("Attacker", nil)
+					info.Hum.Health = 0
+				end
+			end
+		end
+
+		if isNight and zombieCount() < CFG.MaxZombies and rng:NextNumber() < 0.5 then
+			spawnNearPlayer()
+		end
+
+		local txt = string.format("Hari %d  |  %02d:%02d  |  %s", day, math.floor(ct), math.floor((ct % 1) * 60),
+			isNight and "Malam" or "Siang")
+		for _, st in pairs(state) do st.UI.Time.Text = txt end
+	end
+end)

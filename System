@@ -1,0 +1,132 @@
+-- TeaHack | Script Selector
+-- Roblox Studio Lite
+-- Membuka UI pilihan NasiRendang dan Xxy.
+-- URL eksternal ditampilkan untuk ditinjau sebelum digunakan.
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local old = playerGui:FindFirstChild("TeaHackSelector")
+if old then old:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "TeaHackSelector"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Name = "Main"
+frame.Size = UDim2.fromOffset(300, 230)
+frame.Position = UDim2.new(0.5, -150, 0.5, -115)
+frame.BackgroundColor3 = Color3.fromRGB(19, 20, 29)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+
+Instance.new("UICorner", frame).CornerRadius =
+    UDim.new(0, 12)
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(115, 80, 210)
+stroke.Thickness = 1.5
+stroke.Parent = frame
+
+local function createLabel(text, size, position, fontSize)
+    local label = Instance.new("TextLabel")
+    label.Size = size
+    label.Position = position
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(245, 245, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = fontSize
+    label.Parent = frame
+    return label
+end
+
+createLabel(
+    "TEAHACK SELECTOR",
+    UDim2.new(1, -50, 0, 38),
+    UDim2.fromOffset(12, 5),
+    17
+).TextXAlignment = Enum.TextXAlignment.Left
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(30, 30)
+close.Position = UDim2.new(1, -38, 0, 8)
+close.Text = "X"
+close.TextSize = 14
+close.Font = Enum.Font.GothamBold
+close.TextColor3 = Color3.new(1, 1, 1)
+close.BackgroundColor3 = Color3.fromRGB(180, 50, 60)
+close.Parent = frame
+Instance.new("UICorner", close).CornerRadius =
+    UDim.new(0, 7)
+
+close.Activated:Connect(function()
+    gui:Destroy()
+end)
+
+local status = createLabel(
+    "Pilih script yang ingin ditinjau",
+    UDim2.new(1, -20, 0, 22),
+    UDim2.fromOffset(10, 40),
+    11
+)
+status.Font = Enum.Font.Gotham
+status.TextColor3 = Color3.fromRGB(170, 175, 195)
+
+local function createOption(name, y, color, url)
+    createLabel(
+        name,
+        UDim2.new(0.53, 0, 0, 32),
+        UDim2.fromOffset(14, y),
+        14
+    ).TextXAlignment = Enum.TextXAlignment.Left
+
+    local execute = Instance.new("TextButton")
+    execute.Name = name .. "Execute"
+    execute.Size = UDim2.fromOffset(112, 32)
+    execute.Position = UDim2.new(1, -126, 0, y)
+    execute.BackgroundColor3 = color
+    execute.Text = "Execute"
+    execute.TextColor3 = Color3.new(1, 1, 1)
+    execute.Font = Enum.Font.GothamBold
+    execute.TextSize = 13
+    execute.Parent = frame
+
+    Instance.new("UICorner", execute).CornerRadius =
+        UDim.new(0, 7)
+
+    execute.Activated:Connect(function()
+        -- Tidak menjalankan kode mentah dari URL secara otomatis.
+        -- Tampilkan URL agar dapat diperiksa terlebih dahulu.
+        status.Text = name .. ": URL siap ditinjau"
+        status.TextColor3 = color
+
+        print(name .. " URL: " .. url)
+    end)
+end
+
+createOption(
+    "NasiRendang",
+    78,
+    Color3.fromRGB(125, 75, 210),
+    "https://raw.githubusercontent.com/akun9vivo-ownerVIPceo/Idk/refs/heads/main/Domian%20https%3Abackdoor-raw-moon.netlify.app"
+)
+
+createOption(
+    "Xxy",
+    125,
+    Color3.fromRGB(35, 135, 190),
+    "https://raw.githubusercontent.com/akun9vivo-ownerVIPceo/Idk/refs/heads/main/StealAnEggg.txt"
+)
+
+createLabel(
+    "Draggable • Closeable",
+    UDim2.new(1, -20, 0, 20),
+    UDim2.fromOffset(10, 190),
+    10
+).Font = Enum.Font.Gotham

